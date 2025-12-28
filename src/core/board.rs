@@ -23,6 +23,9 @@ use crate::core::tables::magics::{
 use crate::core::tables::zobrist::{
     get_castle_zobrist, get_ep_zobrist, get_piece_zobrist, get_turn_zobrist,
 };
+use crate::evaluation::tables::get_pst_value;
+use crate::search::defs::Score;
+// use crate::evaluation::tables::get_pst_value;
 const PIECE_LETTERS: [char; 12] = ['p', 'n', 'b', 'r', 'q', 'k', 'P', 'N', 'B', 'R', 'Q', 'K'];
 const CASTLE_RIGHTS_LETTERS: [char; 4] = ['K', 'Q', 'k', 'q'];
 #[derive(Clone, Copy)]
@@ -38,6 +41,7 @@ pub struct Board {
     pub pawn_hash: u64,
     pub en_passant: Option<Square>,
     pub halfmove_clock: u8,
+    pub pst_value: Score,
 }
 impl Board {
     pub fn default() -> Board {
@@ -58,6 +62,7 @@ impl Board {
             en_passant: None,
             pawn_hash: 0,
             halfmove_clock: 0,
+            pst_value: 0,
         };
         for i in 0..8 {
             let rank = ranks[7 - i];
@@ -236,6 +241,9 @@ impl Board {
         if piece == Piece::Pawn {
             self.pawn_hash ^= get_piece_zobrist(Piece::Pawn, color, sq);
         } 
+        else if piece != Piece::Pawn && piece != Piece::King {
+            self.pst_value += get_pst_value(color, piece, sq);
+        }
     }
     fn remove_piece(&mut self, piece: Piece, sq: Square, color: Color) {
         let bb = 1u64 << sq;
@@ -245,6 +253,9 @@ impl Board {
         self.hash ^= get_piece_zobrist(piece, color, sq);
         if piece == Piece::Pawn {
             self.pawn_hash ^= get_piece_zobrist(Piece::Pawn, color, sq);
+        } 
+        else if piece != Piece::Pawn && piece != Piece::King {
+            self.pst_value -= get_pst_value(color, piece, sq);
         }
     }
     fn remove_white_king_side(&mut self) {
@@ -372,3 +383,4 @@ impl Board {
         };
     }
 }
+	
