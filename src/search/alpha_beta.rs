@@ -1,4 +1,4 @@
-use crate::{core::{Board, movegen::generate_all_moves}, evaluation::evaluate::evaluate, search::defs::{Depth, Score}, transposition_table::{Flag, TTEntry, TranspositionTable}};
+use crate::{core::{Board, movegen::generate_all_moves}, search::{defs::{Depth, Score}, quiescence::quiescence}, transposition_table::{Flag, TTEntry, TranspositionTable}};
 
 pub fn alpha_beta(
     board: &Board,
@@ -9,7 +9,7 @@ pub fn alpha_beta(
     ply: Depth,
 ) -> Score {
     if depth == 0 {
-        return evaluate(board, tt);
+        return quiescence(board, alpha, beta, tt);
     }
 
     let key = board.hash;
