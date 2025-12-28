@@ -1,10 +1,21 @@
-use crate::core::{Board, perft::start_perft, perft_test:: test_perft};
+use std::sync::Arc;
+
+use crate::{core::{Board, Color, r#move::MoveUtil, perft::start_perft, perft_test:: test_perft}, search::{defs::{SearchInfo, SearchMode}, iter_deep::start_iterative_deepening_search}, transposition_table::TranspositionTable};
 const ENGINENAME: &str = "Vhagar";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Reza Ghazavi";
+
+const DEAFAULT_TT_SIZE_MB: usize = 64;
+
+fn allocate_time(my_time: u128, my_inc: u128, moves_to_go: usize) -> (u128, u128) {
+    let soft_bound = (my_time / u128::min(20, moves_to_go as u128)) + (my_inc / 2);
+    let hard_bound = soft_bound + soft_bound / 5;
+    return (soft_bound.min(my_time), hard_bound.min(my_time));
+}
 pub struct Uci {
     board: Board,
     position_cmd: String,
+    tt: Arc<TranspositionTable>,
 }
 
 impl Uci {
@@ -12,6 +23,7 @@ impl Uci {
         Self {
             board: Board::default(),
             position_cmd: String::from("position startpos moves"),
+            tt: Arc::new(TranspositionTable::new(DEAFAULT_TT_SIZE_MB)),
         }
     }
 
@@ -30,6 +42,7 @@ impl Uci {
             cmd if cmd == "board" => self.print_board(),
             cmd if cmd.starts_with("perft") => self.parse_perft(&cmd),
             cmd if cmd.starts_with("go perft") => self.parse_perft(&cmd[3..]),
+            cmd if cmd.starts_with("go") => self.parse_go(&cmd),
             // cmd if cmd == "bench" || cmd == "benchmark" => benchmark(),
 
             // Everything else is ignored.
@@ -93,6 +106,89 @@ impl Uci {
             self.board.make_move_from_str(&m);
         }
     }
+
+    fn parse_go(&mut self, cmd: &str) {
+        enum Tokens {
+            Nothing,
+            Depth,
+            Nodes,
+            MoveTime,
+            WTime,
+            BTime,
+            WInc,
+            BInc,
+            MovesToGo,
+        }
+
+        let parts: Vec<String> = cmd.split_whitespace().map(|s| s.to_string()).collect();
+        let mut token = Tokens::Nothing;
+        let mut info = SearchInfo::default();
+        for p in parts {
+            match p {
+                t if t == "go" => {}
+                t if t == "infinite" => info.search_mode = SearchMode::Infinite,
+                t if t == "depth" => token = Tokens::Depth,
+                t if t == "movetime" => token = Tokens::MoveTime,
+                t if t == "nodes" => token = Tokens::Nodes,
+                t if t == "wtime" => token = Tokens::WTime,
+                t if t == "btime" => token = Tokens::BTime,
+                t if t == "winc" => token = Tokens::WInc,
+                t if t == "binc" => token = Tokens::BInc,
+                t if t == "movestogo" => token = Tokens::MovesToGo,
+                _ => match token {
+                    Tokens::Nothing => (),
+                    Tokens::Depth => {
+                        info.max_depth = p.parse::<i8>().unwrap_or(1);
+                        info.search_mode = SearchMode::Depth;
+                        break; // break for-loop: nothing more to do.
+                    }
+                    Tokens::MoveTime => {
+                        info.max_move_time = p.parse::<u128>().unwrap_or(1000) - 5;
+                        info.allocated_time = p.parse::<u128>().unwrap_or(1000) - 5;
+                        info.search_mode = SearchMode::MoveTime;
+                        break; // break for-loop: nothing more to do.
+                    }
+                    Tokens::Nodes => {
+                        info.max_nodes = p.parse::<u64>().unwrap_or(1);
+                        info.search_mode = SearchMode::Nodes;
+                        break; // break for-loop: nothing more to do.
+                    }
+                    Tokens::WTime => info.game_time.wtime = p.parse::<u128>().unwrap_or(0),
+                    Tokens::BTime => info.game_time.btime = p.parse::<u128>().unwrap_or(0),
+                    Tokens::WInc => info.game_time.winc = p.parse::<u128>().unwrap_or(0),
+                    Tokens::BInc => info.game_time.binc = p.parse::<u128>().unwrap_or(0),
+                    Tokens::MovesToGo => {
+                        info.game_time.moves_to_go = if let Ok(x) = p.parse::<usize>() {
+                            Some(x)
+                        } else {
+                            None
+                        }
+                    }
+                }, // end match token
+            } // end match p
+        } // end for
+        if self.board.turn == Color::White && info.game_time.wtime != 0 {
+            (info.allocated_time, info.max_move_time) = allocate_time(
+                info.game_time.wtime,
+                info.game_time.winc,
+                info.game_time.moves_to_go.unwrap_or(20),
+            );
+        } else if self.board.turn == Color::Black && info.game_time.btime != 0 {
+            (info.allocated_time, info.max_move_time) = allocate_time(
+                info.game_time.btime,
+                info.game_time.binc,
+                info.game_time.moves_to_go.unwrap_or(20),
+            );
+        }
+
+        let best_move = start_iterative_deepening_search(
+            &self.board,
+            Arc::clone(&self.tt),
+            &mut info,
+            4,
+        );
+        println!("bestmove {}", best_move.to_str());
+    } // end parse_go()
 
     fn id(&self) {
         println!("id name {} {}", ENGINENAME, VERSION);
