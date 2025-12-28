@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::{core::r#move::{ExtendedMove, Move}, search::moves::MoveType};
+use crate::{core::{Color, Piece, color, r#move::{ExtendedMove, Move, MoveUtil}, square::Square}, search::moves::MoveType};
 
 
 pub const MATE_SCORE: i16 = -30000;
@@ -214,5 +214,19 @@ impl ThreadData{
             return [0; 2];
         }
         return self.killers[ply as usize];
+    }
+    pub fn store_killer_move(&mut self, depth: Depth, ply: Depth, mv: Move, piece: Piece, color: Color){ 
+        //do not store captures or promotions as killer moves
+        self.history[color as usize][piece as usize][mv.get_to() as usize] = (self.history[color as usize][piece as usize][mv.get_to() as usize] + (depth as i32 * depth as i32)).clamp(-32_000, 32_000);
+        if ply as usize >= KILLER_PLIES {
+            return;
+        }
+        if self.killers[ply as usize][0] != mv {
+            self.killers[ply as usize][1] = self.killers[ply as usize][0];
+            self.killers[ply as usize][0] = mv;
+        }
+    }
+    pub fn store_bad_quiet(&mut self, depth: Depth, mv: Move, piece: Piece, color: Color){
+        self.history[color as usize][piece as usize][mv.get_to() as usize] = (self.history[color as usize][piece as usize][mv.get_to() as usize] + (depth as i32 * depth as i32)).clamp(-32_000, 32_000);
     }
 }

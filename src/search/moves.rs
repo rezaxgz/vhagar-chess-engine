@@ -27,7 +27,6 @@ const MVV_LVA: [[Score; 6]; 5] = [
     [45, 44, 43, 42, 41, 40], // victim R, attacker P, N, B, R, Q, K
     [55, 54, 53, 52, 51, 50], // victim Q, attacker P, N, B, R, Q, K
 ];
-// const KILLER_BOUNUS: Score = 100;
 
 fn piece_value(piece: Piece) -> i8 {
     match piece {
@@ -111,6 +110,7 @@ pub fn sort_all_moves(
     tt_move: Move,
     ply: Depth,
     moves: &mut Vec<Move>,
+    move_types: &mut Vec<MoveType>,
 ) {
     let killers = thread_data.get_killers(ply);
     let pawns = board.get_piece_bitboard(Piece::Pawn, !board.turn);
@@ -131,7 +131,7 @@ pub fn sort_all_moves(
             mv == tt_move,
             killers.contains(&mv),
             thread_data.history[board.turn as usize][p as usize][mv.get_to() as usize],
-            thread_data
+            thread_data,
         );
     }
     moves.sort_by(|b, a| {
@@ -141,6 +141,9 @@ pub fn sort_all_moves(
             thread_data.move_values[*a as usize].cmp(&thread_data.move_values[*b as usize])
         }
     });
+    for i in 0..moves.len() {
+        move_types[i] = thread_data.move_types[moves[i] as usize];
+    }
 }
 fn set_capture_value(mv: Move, piece: Piece, captured: Piece, is_controled: bool, thread_data: &mut ThreadData) {
     let mut value = MVV_LVA[captured as usize][piece as usize];

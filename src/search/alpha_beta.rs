@@ -1,4 +1,4 @@
-use crate::{core::{Board, movegen::generate_all_moves}, search::{defs::{Depth, Score, ThreadData}, moves::sort_all_moves, quiescence::quiescence}, transposition_table::{Flag, TTEntry, TranspositionTable}};
+use crate::{core::{Board, r#move::MoveUtil, movegen::generate_all_moves}, search::{defs::{Depth, MATE_SCORE, Score, ThreadData}, moves::{MoveType, sort_all_moves}, quiescence::quiescence}, transposition_table::{Flag, TTEntry, TranspositionTable}};
 
 pub fn alpha_beta(
     board: &Board,
@@ -31,13 +31,27 @@ pub fn alpha_beta(
     let mut movelist = Vec::with_capacity(100);
 
     generate_all_moves(board, &mut movelist);
-    sort_all_moves(board, thread_data, tt_move, ply, &mut movelist);
+    
+    if movelist.is_empty() {
+        if board.checkers == 0 {
+            return 0; // stalemate
+        } else {
+            return MATE_SCORE + ply as i16; // checkmate
+        }
+    }
+
+    let mut move_types = vec![MoveType::BadCapture; movelist.len()];
+
+    sort_all_moves(board, thread_data, tt_move, ply, &mut movelist, &mut move_types);
 
 
     let mut best = i16::MIN;
     let mut best_move = 0;
 
-    for mv in movelist {
+    for i in 0..movelist.len() {
+        let mv = movelist[i];
+        let move_type = move_types[i];
+
         let new_board = board.make_move_new(mv);
 
         let score = -alpha_beta(&new_board, depth - 1, -beta, -alpha, tt, ply + 1, thread_data);
@@ -48,7 +62,13 @@ pub fn alpha_beta(
         }
         alpha = alpha.max(score);
         if alpha >= beta {
+            if move_type == MoveType::QuietMove {
+                thread_data.store_killer_move(depth, ply, mv, board.piece_on(mv.get_from()).unwrap(), board.turn);
+            }
             break;
+        }
+        if move_type == MoveType::QuietMove {
+            thread_data.store_bad_quiet(depth, mv, board.piece_on(mv.get_from()).unwrap(), board.turn);
         }
     }
 
