@@ -4,7 +4,7 @@ use std::thread;
 use crate::core::Board;
 use crate::core::movegen::generate_all_moves;
 use crate::search::alpha_beta::alpha_beta;
-use crate::search::defs::{Depth, RootResult, Score};
+use crate::search::defs::{Depth, RootResult, Score, ThreadData};
 use crate::transposition_table::TranspositionTable;
 
 pub fn search_root_parallel(
@@ -34,6 +34,7 @@ pub fn search_root_parallel(
         let chunk = chunk.to_vec();
 
         handles.push(thread::spawn(move || {
+            let mut thread_data = ThreadData::new();
             for mv in chunk {
 
                 let mut p = board.clone();
@@ -45,7 +46,8 @@ pub fn search_root_parallel(
                     Score::MIN,
                     Score::MAX,
                     &tt,
-                    1
+                    1,
+                    &mut thread_data
                 );
 
                 let mut best_guard = best.lock().unwrap();

@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::core::r#move::{ExtendedMove, Move};
+use crate::{core::r#move::{ExtendedMove, Move}, search::moves::MoveType};
 
 
 pub const MATE_SCORE: i16 = -30000;
@@ -187,5 +187,32 @@ impl SearchInfo {
     }
     pub fn reset_temp_info(&mut self) {
         
+    }
+}
+pub const KILLERS_PER_PLY: usize = 2;
+pub const KILLER_PLIES: usize = 20;
+pub type KillerMoves = [Move; KILLERS_PER_PLY];
+pub struct ThreadData {
+    killers: [KillerMoves; 20],  
+    pub history: [[[i32; 64]; 6]; 2], // [piece][to]
+    pub move_values: [i32; 65536], // used for faster move ordering
+    pub move_types: [MoveType; 65536] // used for faster move ordering
+}
+
+
+impl ThreadData{
+    pub fn new() -> ThreadData{
+        return ThreadData { 
+            killers: [[0; 2]; 20],
+            history: [[[0; 64]; 6]; 2],
+            move_values: [0; 65536],
+            move_types: [MoveType::BadCapture; 65536],
+        };
+    }
+    pub fn get_killers(&self, ply: Depth) -> KillerMoves{
+        if ply as usize >= KILLER_PLIES {
+            return [0; 2];
+        }
+        return self.killers[ply as usize];
     }
 }

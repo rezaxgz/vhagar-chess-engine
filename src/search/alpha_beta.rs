@@ -1,4 +1,4 @@
-use crate::{core::{Board, movegen::generate_all_moves}, search::{defs::{Depth, Score}, quiescence::quiescence}, transposition_table::{Flag, TTEntry, TranspositionTable}};
+use crate::{core::{Board, movegen::generate_all_moves}, search::{defs::{Depth, Score, ThreadData}, moves::sort_all_moves, quiescence::quiescence}, transposition_table::{Flag, TTEntry, TranspositionTable}};
 
 pub fn alpha_beta(
     board: &Board,
@@ -7,13 +7,15 @@ pub fn alpha_beta(
     beta: Score,
     tt: &TranspositionTable,
     ply: Depth,
+    thread_data: &mut ThreadData
 ) -> Score {
     if depth == 0 {
-        return quiescence(board, alpha, beta, tt);
+        return quiescence(board, alpha, beta, tt, thread_data);
     }
 
     let key = board.hash;
-
+    
+    let mut tt_move = 0;
     if let Some(e) = tt.lookup_position(key) {
         if e.depth >= depth {
             match e.flag {
@@ -23,11 +25,13 @@ pub fn alpha_beta(
                 _ => {}
             }
         }
+        tt_move = e.best_move;
     }
 
     let mut movelist = Vec::with_capacity(100);
 
     generate_all_moves(board, &mut movelist);
+    sort_all_moves(board, thread_data, tt_move, ply, &mut movelist);
 
 
     let mut best = i16::MIN;
@@ -36,7 +40,7 @@ pub fn alpha_beta(
     for mv in movelist {
         let new_board = board.make_move_new(mv);
 
-        let score = -alpha_beta(&new_board, depth - 1, -beta, -alpha, tt, ply + 1);
+        let score = -alpha_beta(&new_board, depth - 1, -beta, -alpha, tt, ply + 1, thread_data);
 
         if score > best {
             best = score;
