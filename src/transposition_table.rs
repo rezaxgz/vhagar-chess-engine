@@ -62,7 +62,7 @@ impl TranspositionTable {
         let total_bytes = mb * 1024 * 1024;
         let pawn_bytes = total_bytes >> 4;
         let main_table_size = (total_bytes/entry_size).next_power_of_two();
-        let pawn_table_size = (pawn_bytes/std::mem::size_of::<PawnEntry>());
+        let pawn_table_size = pawn_bytes/std::mem::size_of::<PawnEntry>();
         TranspositionTable {
             table: (0..main_table_size)
                 .map(|_| UnsafeCell::new(TTEntry::default()))

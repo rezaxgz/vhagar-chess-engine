@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{core::{Board, r#move::{Move, MoveUtil}}, search::{defs::{Depth, Score, SearchInfo}, search::search_root_parallel}, transposition_table::TranspositionTable};
+use crate::{core::{Board, r#move::{Move, MoveUtil}}, search::{defs::{Score, SearchInfo}, search::search_root_parallel}, transposition_table::TranspositionTable};
 
 pub fn start_iterative_deepening_search(
     board: &Board,
