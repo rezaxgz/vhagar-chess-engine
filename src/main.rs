@@ -5,6 +5,7 @@ mod uci;
 mod transposition_table;
 mod search;
 mod evaluation;
+mod uci_options;
 
 fn main() {
     let mut uci_class = uci::Uci::new();

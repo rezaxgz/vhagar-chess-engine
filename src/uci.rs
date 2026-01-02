@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{core::{Board, Color, r#move::MoveUtil, perft::start_perft, perft_test:: test_perft}, search::{defs::{SearchInfo, SearchMode, SearchResult}, iter_deep::start_iterative_deepening_search}, transposition_table::TranspositionTable};
+use crate::{core::{Board, Color, r#move::MoveUtil, perft::start_perft, perft_test:: test_perft}, search::{defs::{SearchInfo, SearchMode, SearchResult}, iter_deep::start_iterative_deepening_search}, transposition_table::TranspositionTable, uci_options::UciOptions};
 const ENGINENAME: &str = "Vhagar";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Reza Ghazavi";
@@ -16,6 +16,7 @@ pub struct Uci {
     board: Board,
     position_cmd: String,
     tt: Arc<TranspositionTable>,
+    options: UciOptions,
 }
 
 impl Uci {
@@ -24,6 +25,7 @@ impl Uci {
             board: Board::default(),
             position_cmd: String::from("position startpos moves"),
             tt: Arc::new(TranspositionTable::new(DEAFAULT_TT_SIZE_MB)),
+            options: UciOptions::new()
         }
     }
 
@@ -43,6 +45,7 @@ impl Uci {
             cmd if cmd.starts_with("perft") => self.parse_perft(&cmd),
             cmd if cmd.starts_with("go perft") => self.parse_perft(&cmd[3..]),
             cmd if cmd.starts_with("go") => self.parse_go(&cmd),
+            cmd if cmd.starts_with("setoption") => self.parse_setoption(&cmd),
             // cmd if cmd == "bench" || cmd == "benchmark" => benchmark(),
 
             // Everything else is ignored.
@@ -178,10 +181,27 @@ impl Uci {
             &self.board,
             Arc::clone(&self.tt),
             &mut info,
-            4,
+            self.options.thread_cout(),
         );
         println!("bestmove {}", best_move.to_str());
     } // end parse_go()
+
+    fn parse_setoption(&mut self, cmd: &str){
+        let args = cmd.split(" ").map(|a| String::from(a)).collect::<Vec<String>>();
+        let mut i = 0;
+        let mut name = String::new();
+        let mut value = String::new();
+        while i < args.len(){
+            if i > 1 && args[i - 1] == "name"{
+                name = args[i].clone();
+            }
+            if i > 1 && args[i - 1] == "value"{
+                value = args[i].clone();
+            }
+            i += 1;
+        }
+        self.options.set(name, value);
+    }
 
     fn id(&self) {
         println!("id name {} {}", ENGINENAME, VERSION);
@@ -189,6 +209,7 @@ impl Uci {
     }
     fn uciok(&self) {
         self.id();
+        self.options.print();
         println!("uciok");
     }
     fn readyok(&self) {

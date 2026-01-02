@@ -8,6 +8,7 @@ pub fn start_iterative_deepening_search(
     search_info: &mut SearchInfo,
     threads: usize,
 ) -> Move {
+    println!("{}", threads);
     let mut best_move = None;
 
     for depth in 1..=search_info.max_depth {
