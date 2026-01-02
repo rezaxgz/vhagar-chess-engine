@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{core::{Board, Color, r#move::MoveUtil, perft::start_perft, perft_test:: test_perft}, search::{defs::{SearchInfo, SearchMode}, iter_deep::start_iterative_deepening_search}, transposition_table::TranspositionTable};
+use crate::{core::{Board, Color, r#move::MoveUtil, perft::start_perft, perft_test:: test_perft}, search::{defs::{SearchInfo, SearchMode, SearchResult}, iter_deep::start_iterative_deepening_search}, transposition_table::TranspositionTable};
 const ENGINENAME: &str = "Vhagar";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Reza Ghazavi";
@@ -111,7 +111,6 @@ impl Uci {
         enum Tokens {
             Nothing,
             Depth,
-            Nodes,
             MoveTime,
             WTime,
             BTime,
@@ -129,7 +128,6 @@ impl Uci {
                 t if t == "infinite" => info.search_mode = SearchMode::Infinite,
                 t if t == "depth" => token = Tokens::Depth,
                 t if t == "movetime" => token = Tokens::MoveTime,
-                t if t == "nodes" => token = Tokens::Nodes,
                 t if t == "wtime" => token = Tokens::WTime,
                 t if t == "btime" => token = Tokens::BTime,
                 t if t == "winc" => token = Tokens::WInc,
@@ -139,18 +137,13 @@ impl Uci {
                     Tokens::Nothing => (),
                     Tokens::Depth => {
                         info.max_depth = p.parse::<i8>().unwrap_or(1);
-                        info.search_mode = SearchMode::Depth;
+                        info.search_mode = SearchMode::Infinite;
                         break; // break for-loop: nothing more to do.
                     }
                     Tokens::MoveTime => {
                         info.max_move_time = p.parse::<u128>().unwrap_or(1000) - 5;
                         info.allocated_time = p.parse::<u128>().unwrap_or(1000) - 5;
                         info.search_mode = SearchMode::MoveTime;
-                        break; // break for-loop: nothing more to do.
-                    }
-                    Tokens::Nodes => {
-                        info.max_nodes = p.parse::<u64>().unwrap_or(1);
-                        info.search_mode = SearchMode::Nodes;
                         break; // break for-loop: nothing more to do.
                     }
                     Tokens::WTime => info.game_time.wtime = p.parse::<u128>().unwrap_or(0),
@@ -221,5 +214,20 @@ impl Uci {
             let cmd = line.trim();
             self.receive_cmd(cmd);
         }
+    }
+}
+
+impl Uci{
+    pub fn send_info(result: &SearchResult){
+        println!("info depth {} score cp {} nodes {} q_nodes {} nps {} time {} bestmove {} pv {}", 
+            result.depth,
+            result.eval,
+            result.nodes,
+            result.q_nodes,
+            (result.nodes + result.q_nodes) as u128 * 1000 / (u128::max(1, result.timer_elapsed())),
+            result.timer_elapsed(),
+            result.best_move.to_str(),
+            result.pv.iter().map(|a| a.to_str()).collect::<Vec<String>>().join(" ")
+        );
     }
 }

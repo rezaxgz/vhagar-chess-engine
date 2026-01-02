@@ -7,6 +7,8 @@ pub fn quiescence(
     tt: &TranspositionTable,
     thread_data: &mut ThreadData
 ) -> i16 {
+    thread_data.q_nodes += 1;
+    
     let mut alpha = alpha;
     let stand_pat = evaluate(board, tt);
     if stand_pat >= beta {

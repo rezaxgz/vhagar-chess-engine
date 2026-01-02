@@ -168,20 +168,6 @@ pub fn evaluate(board: &Board, tt: &TranspositionTable) -> i16 {
     } else {
         get_value(-20, -10, white_endgame)
     };
-    // println!(
-    //     "m {} mo {} mop {} pst {} pawn {} bish {} ro {} q {} sev {} temp {} king {}",
-    //     material_eval,
-    //     white_mobility_score - black_mobility_score,
-    //     mop_eval,
-    //     piece_scores,
-    //     pawn_eval,
-    //     bishop_eval,
-    //     rooks_eval,
-    //     queens_eval,
-    //     seventh_rank_value,
-    //     tempo_bounus,
-    //     king_eval
-    // );
     let eval = material_eval + white_mobility_score - black_mobility_score
         + mop_eval
         + piece_scores

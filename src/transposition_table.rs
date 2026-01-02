@@ -1,6 +1,6 @@
 use std::cell::UnsafeCell;
 
-use crate::{core::r#move::Move, search::defs::{Depth, Score}};
+use crate::{core::{Board, r#move::Move}, search::defs::{Depth, Score}};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Flag{
@@ -137,6 +137,23 @@ impl TranspositionTable {
     pub fn store_pawn_structure(&self, key: u64, entry: PawnEntry) {
         let idx = self.pawn_index(key);
         unsafe {*self.pawn_table[idx].get() = entry;}
+    }
+}
+
+impl TranspositionTable{
+    pub fn calculate_pv(&self, mut board: Board, pv: &mut Vec<Move>){
+        let mut len = 0;
+        while len < 10{
+            let res = self.lookup_position(board.hash);
+            if res.is_some(){
+                let mv = res.unwrap().best_move;
+                pv.push(mv);
+                board.make_move(mv);
+                len += 1;
+            }else{
+                break;
+            }
+        }
     }
 }
 unsafe impl Sync for TranspositionTable {}

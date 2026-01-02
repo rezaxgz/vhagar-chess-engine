@@ -1,33 +1,26 @@
 use std::time::{Duration, Instant};
 
-use crate::{core::{Color, Piece, color, r#move::{ExtendedMove, Move, MoveUtil}, square::Square}, search::moves::MoveType};
+use crate::{core::{Color, Piece, r#move::{Move, MoveUtil}}, search::moves::MoveType};
 
 
 pub const MATE_SCORE: i16 = -30000;
-pub const MATE_THRESHOLD: i16 = MATE_SCORE + 100;
-pub const DRAW_SCORE: i16 = 0;
-pub const ALPHA: i16 = -i16::MAX;
-pub const BETA: i16 = i16::MAX;
-
-
-#[derive(Clone)]
-pub struct RootResult {
-    pub mv: Move,
-    pub score: i16,
-}
+const MATE_THRESHOLD: i16 = MATE_SCORE + 100;
 
 pub type Depth = i8;
 pub type Score = i16;
-
+#[derive(Clone)]
 pub struct SearchResult {
     pub eval: i16,
     pub best_move: Move,
     pub depth: i8,
-    pub seldepth: i8,
     pub duration: Duration,
     pub mate: u8,      // mate in X moves
     pub nodes: u64,    // nodes searched
+    pub q_nodes: u64,   // quiescence nodes searched
+    pub beta_cuttoffs: u64,
+    pub tt_hits: u64,
     pub pv: Vec<Move>, // Principal Variation
+    pub start_time: Instant,
 }
 impl SearchResult {
     pub fn stalemate() -> Self {
@@ -39,7 +32,10 @@ impl SearchResult {
             mate: 0,
             nodes: 1,
             pv: vec![],
-            seldepth: 0,
+            beta_cuttoffs: 0,
+            tt_hits: 0,
+            q_nodes: 0,
+            start_time: Instant::now(),
         };
     }
     pub fn checkmate() -> Self {
@@ -48,32 +44,66 @@ impl SearchResult {
             depth: 0,
             duration: Duration::from_nanos(1),
             eval: MATE_SCORE,
-            mate: 0,
+            mate: 1,
             nodes: 1,
             pv: vec![],
-            seldepth: 0,
+            beta_cuttoffs: 0,
+            tt_hits: 0,
+            q_nodes: 0,
+            start_time: Instant::now(),
         };
     }
-    pub fn empty() -> Self {
+    pub fn inital() -> Self {
         return SearchResult {
             best_move: 0,
             depth: 0,
             duration: Duration::from_nanos(1),
-            eval: 0,
+            eval: Score::MIN + 10,
             mate: 0,
             nodes: 0,
             pv: vec![],
-            seldepth: 0,
+            beta_cuttoffs: 0,
+            tt_hits: 0,
+            q_nodes: 0,
+            start_time: Instant::now(),
         };
+    }
+    pub fn update_stats(&mut self, thread_data: &ThreadData){
+        self.beta_cuttoffs += thread_data.beta_cutoffs;
+        self.nodes += thread_data.nodes;
+        self.q_nodes += thread_data.q_nodes;
+        self.tt_hits += thread_data.tt_hits;
+        self.depth = thread_data.depth;
+    }
+    pub fn timer_elapsed(&self) -> u128{
+        return self.start_time.elapsed().as_millis()
+    }
+    pub fn update(&mut self, other: &SearchResult) -> SearchResult{
+        if other.eval > self.eval {
+            self.set_eval(other.eval);
+            self.best_move = other.best_move;
+        }
+        return self.clone();
+    }
+    pub fn set_eval(&mut self, eval: i16){
+        self.eval = eval;
+        if eval <= MATE_THRESHOLD {
+            self.mate = ((eval - MATE_SCORE) / 2) as u8;
+        } else if eval >= -MATE_THRESHOLD {
+            self.mate = ((MATE_SCORE + eval) / 2) as u8;
+        } else {
+            self.mate = 0;
+        }
+    }
+    pub fn update_timer(&mut self){
+        self.duration = self.start_time.elapsed();
     }
 }
 
 
 #[derive(PartialEq, Copy, Clone)]
 pub enum SearchMode {
-    Depth,    // Run until requested depth is reached.
     MoveTime, // Run until 'time per move' is used up.
-    Nodes,    // Run until the number of requested nodes was reached.
     GameTime, // Search determines when to quit, depending on available time.
     Infinite, // Run forever, until the 'stop' command is received.
     Nothing,  // No search mode has been defined.
@@ -107,10 +137,6 @@ impl GameTime {
 #[derive(PartialEq, Copy, Clone)]
 pub struct SearchInfo {
     //info relating to the current state of the search
-    pub depth: i8,           // Depth currently being searched
-    pub depth_extension: i8, // Depth currently extended
-    pub previous_move: ExtendedMove,
-    pub ply: i8,                 // Number of plys from the root
     pub search_mode: SearchMode, // Defines the mode to search in
 
     //limits applied to the search
@@ -121,37 +147,21 @@ pub struct SearchInfo {
     pub game_time: GameTime,  // Time available for entire game
 
     //info relating to search summary
-    pub seldepth: i8,          // Maximum selective depth reached
     pub start_time: Instant,   // Time the search started
-    pub nodes: u64,            // Nodes searched
-    pub tt_hits: u64,          //number of transposition table hits
-    pub beta_cutoffs: u64,     // Number of beta cutoffs
-    pub q_nodes: u64,          //number of quescence nodes
     pub quiet: bool,           // No intermediate search stats updates
-    pub terminated_flag: bool, // If the search is terminated
 }
 
 impl SearchInfo {
     pub fn default() -> Self {
         return SearchInfo {
             start_time: Instant::now(),
-            previous_move: ExtendedMove::default(),
-            depth: 0,
-            depth_extension: 0,
-            seldepth: 0,
-            nodes: 0,
-            q_nodes: 0,
-            beta_cutoffs: 0,
-            tt_hits: 0,
             max_nodes: u64::MAX,
-            ply: 0,
             allocated_time: 0,
             max_depth: i8::MAX,
             max_move_time: 60 * 1000 * 5, // 5 minutes
             game_time: GameTime::new(0, 0, 0, 0, None),
             search_mode: SearchMode::Nothing,
             quiet: false,
-            terminated_flag: false,
         };
     }
     pub fn timer_start(&mut self) {
@@ -162,7 +172,7 @@ impl SearchInfo {
         self.start_time.elapsed()
     }
 
-    fn check_termination(&self, is_mid_search: bool) -> bool {
+    fn is_terminated(&self, is_mid_search: bool) -> bool {
         let elapsed = self.timer_elapsed().as_millis();
         if self.search_mode == SearchMode::Infinite {
             return false;
@@ -172,19 +182,12 @@ impl SearchInfo {
         }
         match self.search_mode {
             SearchMode::MoveTime => return elapsed > self.allocated_time,
-            SearchMode::Nodes => return self.nodes > self.max_nodes,
-            SearchMode::Depth => return self.depth > self.max_depth,
             SearchMode::GameTime => return elapsed > self.allocated_time && !is_mid_search,
+            SearchMode::Infinite => return false,
             _ => return elapsed > self.max_move_time,
         }
     }
-    pub fn is_terminated(&mut self, is_mid_search: bool) -> bool {
-        if self.terminated_flag {
-            return true;
-        }
-        self.terminated_flag = self.check_termination(is_mid_search);
-        return self.terminated_flag;
-    }
+
     pub fn reset_temp_info(&mut self) {
         
     }
@@ -194,9 +197,19 @@ pub const KILLER_PLIES: usize = 20;
 pub type KillerMoves = [Move; KILLERS_PER_PLY];
 pub struct ThreadData {
     killers: [KillerMoves; 20],  
-    pub history: [[[i32; 64]; 6]; 2], // [piece][to]
-    pub move_values: [i32; 65536], // used for faster move ordering
-    pub move_types: [MoveType; 65536] // used for faster move ordering
+    pub history: [[[i32; 64]; 6]; 2],  // [piece][to]
+    pub move_values: [i32; 65536],     // used for faster move ordering
+    pub move_types: [MoveType; 65536], // used for faster move ordering
+
+    //current search data
+    pub ply: i8,                       // Number of plys from the root
+    pub depth: i8,                     // Depth currently being searched
+
+    //search summary info
+    pub nodes: u64,                    // Nodes searched
+    pub q_nodes: u64,                  // Number of quescence nodes
+    pub tt_hits: u64,                  // Number of transposition table hits
+    pub beta_cutoffs: u64,             // Number of beta cutoffs
 }
 
 
@@ -207,6 +220,12 @@ impl ThreadData{
             history: [[[0; 64]; 6]; 2],
             move_values: [0; 65536],
             move_types: [MoveType::BadCapture; 65536],
+            ply: 0, 
+            depth: 0,
+            nodes: 0, 
+            q_nodes: 0,
+            tt_hits: 0,
+            beta_cutoffs: 0,
         };
     }
     pub fn get_killers(&self, ply: Depth) -> KillerMoves{

@@ -1,23 +1,24 @@
-use crate::{core::{Board, r#move::MoveUtil, movegen::generate_all_moves}, search::{defs::{Depth, MATE_SCORE, Score, ThreadData}, moves::{MoveType, sort_all_moves}, quiescence::quiescence}, transposition_table::{Flag, TTEntry, TranspositionTable}};
+use crate::{core::{Board, r#move::MoveUtil, movegen::generate_all_moves}, search::{defs::{MATE_SCORE, Score, ThreadData}, moves::{MoveType, sort_all_moves}, quiescence::quiescence}, transposition_table::{Flag, TTEntry, TranspositionTable}};
 
 pub fn alpha_beta(
     board: &Board,
-    depth: Depth,
     mut alpha: Score,
     beta: Score,
     tt: &TranspositionTable,
-    ply: Depth,
     thread_data: &mut ThreadData
 ) -> Score {
-    if depth == 0 {
+    if thread_data.depth <= 0 {
         return quiescence(board, alpha, beta, tt, thread_data);
     }
 
+    thread_data.nodes += 1;
+    
     let key = board.hash;
     
     let mut tt_move = 0;
     if let Some(e) = tt.lookup_position(key) {
-        if e.depth >= depth {
+        thread_data.tt_hits += 1;
+        if e.depth >= thread_data.depth {
             match e.flag {
                 Flag::EXACT => return e.eval,
                 Flag::LOWER if e.eval >= beta => return beta, 
@@ -36,25 +37,27 @@ pub fn alpha_beta(
         if board.checkers == 0 {
             return 0; // stalemate
         } else {
-            return MATE_SCORE + ply as i16; // checkmate
+            return MATE_SCORE + thread_data.ply as i16; // checkmate
         }
     }
 
     let mut move_types = vec![MoveType::BadCapture; movelist.len()];
 
-    sort_all_moves(board, thread_data, tt_move, ply, &mut movelist, &mut move_types);
+    sort_all_moves(board, thread_data, tt_move, thread_data.ply, &mut movelist, &mut move_types);
 
-
-    let mut best = i16::MIN;
+    let alpha_orig = alpha;
+    let mut best = i16::MIN + 10;
     let mut best_move = 0;
 
+    thread_data.ply += 1;
+    thread_data.depth -= 1;
     for i in 0..movelist.len() {
         let mv = movelist[i];
         let move_type = move_types[i];
 
         let new_board = board.make_move_new(mv);
 
-        let score = -alpha_beta(&new_board, depth - 1, -beta, -alpha, tt, ply + 1, thread_data);
+        let score = -alpha_beta(&new_board, -beta, -alpha, tt, thread_data);
 
         if score > best {
             best = score;
@@ -62,17 +65,21 @@ pub fn alpha_beta(
         }
         alpha = alpha.max(score);
         if alpha >= beta {
+            thread_data.beta_cutoffs += 1;
+
             if move_type == MoveType::QuietMove {
-                thread_data.store_killer_move(depth, ply, mv, board.piece_on(mv.get_from()).unwrap(), board.turn);
+                thread_data.store_killer_move(thread_data.depth, thread_data.ply, mv, board.piece_on(mv.get_from()).unwrap(), board.turn);
             }
             break;
         }
         if move_type == MoveType::QuietMove {
-            thread_data.store_bad_quiet(depth, mv, board.piece_on(mv.get_from()).unwrap(), board.turn);
+            thread_data.store_bad_quiet(thread_data.depth, mv, board.piece_on(mv.get_from()).unwrap(), board.turn);
         }
     }
+    thread_data.depth += 1;
+    thread_data.ply -= 1;
 
-    let flag = if best <= alpha {
+    let flag = if best <= alpha_orig {
         Flag::UPPER
     } else if best >= beta {
         Flag::LOWER
@@ -82,7 +89,7 @@ pub fn alpha_beta(
 
     let entry = TTEntry {
         key: (key >> 48) as u16,
-        depth: depth as i8,
+        depth: thread_data.depth,
         flag,
         eval: best,
         best_move,

@@ -174,3 +174,73 @@ pub fn sort_captures(board: &Board, moves: &mut Vec<Move>,thread_data: &mut Thre
     }
     moves.sort_by(|b, a| thread_data.move_values[*a as usize].cmp(&thread_data.move_values[*b as usize]));
 }
+pub fn set_root_move_value(
+    m: Move,
+    piece_at_start: Piece,
+    piece_at_end: Option<Piece>,
+    is_controled: bool,
+    color: Color,
+    is_tt_move: bool,
+    move_values: &mut Vec<Score>,
+    move_types: &mut Vec<MoveType>,
+){
+    let mt = move_type(
+        piece_at_start,
+        piece_at_end,
+        is_controled,
+        is_tt_move,
+        false,
+        m.is_promotion(),
+    );
+    let mut value = 0;
+    if piece_at_end.is_some() {
+        //captures sorted with MVV_LVA
+        value += MVV_LVA[piece_at_end.unwrap() as usize][piece_at_start as usize];
+    } else {
+        if is_controled && piece_at_start != Piece::Pawn {
+            value -= 1000000;
+        }
+    }
+
+    if m.is_promotion() {
+        value += PROMOTION_VALUES[m.get_sp() as usize];
+    } else {
+        value += (get_sort_tabel_value(piece_at_start, m.get_to(), color)
+            - get_sort_tabel_value(piece_at_start, m.get_from(), color)) as i32;
+    }
+    move_values[m as usize] = value;
+    move_types[m as usize] = mt;
+
+}
+pub fn sort_root_moves(board: &Board, tt_move: Move, moves: &mut Vec<Move>){
+    let mut move_types = vec![MoveType::BadCapture; Move::MAX as usize];
+    let mut move_values = vec![0; Move::MAX as usize];
+
+    let pawns = board.get_piece_bitboard(Piece::Pawn, !board.turn);
+    let controled = if board.turn == Color::White {
+        (pawns >> 9 & NOT_FILE_H_BB) | (pawns >> 7 & NOT_FILE_A_BB)
+    } else {
+        (pawns << 7 & NOT_FILE_H_BB) | (pawns << 9 & NOT_FILE_A_BB)
+    };
+    for i in 0..moves.len() {
+        let mv = moves[i];
+        let p = board.piece_on(mv.get_from()).unwrap();
+        set_root_move_value(
+            mv,
+            p,
+            board.piece_on(mv.get_to()),
+            controled.has_sq(mv.get_to()),
+            board.turn,
+            mv == tt_move,
+            &mut move_values,
+            &mut move_types
+        );
+    }
+    moves.sort_by(|b, a| {
+        if move_types[*a as usize] != move_types[*b as usize] {
+            move_types[*a as usize].cmp(&move_types[*b as usize])
+        } else {
+            move_values[*a as usize].cmp(&move_values[*b as usize])
+        }
+    });
+}
